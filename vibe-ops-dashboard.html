@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IT Operations Dashboard - Avina Therapy</title>
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; color: #1e293b; line-height: 1.5; padding: 24px; }
+    .container { max-width: 1000px; margin: 0 auto; }
+    .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    h1 { font-size: 20px; color: #0f172a; }
+    .refresh-info { font-size: 12px; color: #94a3b8; }
+    .signin-box { text-align: center; padding: 60px 20px; }
+    .signin-box button { background: #0f172a; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; cursor: pointer; }
+    .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .kpi-card { background: white; border-radius: 10px; padding: 14px 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+    .kpi-card .label { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+    .kpi-card .value { font-size: 22px; font-weight: 700; }
+    .agent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .agent-card { background: white; border-radius: 10px; padding: 14px 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+    .agent-card.no-data { opacity: 0.55; }
+    .agent-card .name { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+    .agent-card .score { font-size: 24px; font-weight: 700; margin-bottom: 2px; }
+    .agent-card .sub { font-size: 12px; color: #64748b; }
+    .chart-wrap { background: white; border-radius: 10px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+    .legend { display: flex; gap: 16px; margin-bottom: 10px; font-size: 12px; color: #64748b; }
+    .legend span { display: flex; align-items: center; gap: 4px; }
+    .dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+    .error-box { background: #fef2f2; color: #991b1b; padding: 12px 16px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="header-row">
+        <h1>IT Operations Dashboard</h1>
+        <span class="refresh-info" id="refreshInfo">Not loaded</span>
+    </div>
+
+    <div id="signinBox" class="signin-box">
+        <button id="signinBtn">Sign in with Microsoft to load dashboard</button>
+    </div>
+
+    <div id="dashboardContent" style="display:none;">
+        <div id="errorBox"></div>
+        <div class="kpi-row" id="kpiRow"></div>
+        <div class="agent-grid" id="agentGrid"></div>
+        <div class="chart-wrap">
+            <div class="legend">
+                <span><span class="dot" style="background:#e34948"></span>Critical</span>
+                <span><span class="dot" style="background:#eb6834"></span>High</span>
+                <span><span class="dot" style="background:#eda100"></span>Medium</span>
+            </div>
+            <div style="position:relative;height:220px;">
+                <canvas id="findingsChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/msal-browser/3.7.1/msal-browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+// ============================================================
+// CONFIG - fill these in for your tenant before deploying
+// ============================================================
+const CONFIG = {
+    clientId: "REPLACE_WITH_ENTRA_APP_CLIENT_ID",       // App registration (SPA platform, public client)
+    tenantId: "avinatherapy.onmicrosoft.com",
+    redirectUri: window.location.origin,                 // must match app registration redirect URI
+    siteHostname: "avinatherapy.sharepoint.com",
+    sitePath: "/sites/Vibe",                              // adjust to your Vibe site path
+    listName: "AgentFindings",
+    agentOrder: ["Tenant Health", "Compliance Register", "Change Comms", "Vendor Contracts", "Documentation"]
+};
+
+const msalConfig = {
+    auth: {
+        clientId: CONFIG.clientId,
+        authority: `https://login.microsoftonline.com/${CONFIG.tenantId}`,
+        redirectUri: CONFIG.redirectUri
+    }
+};
+const msalInstance = new msal.PublicClientApplication(msalConfig);
+const GRAPH_SCOPES = ["Sites.Read.All"];
+
+document.getElementById("signinBtn").addEventListener("click", async () => {
+    try {
+        await msalInstance.loginPopup({ scopes: GRAPH_SCOPES });
+        await loadDashboard();
+    } catch (err) {
+        showError("Sign-in failed: " + err.message);
+    }
+});
+
+// Attempt silent load if already signed in
+window.addEventListener("load", async () => {
+    const accounts = msalInstance.getAllAccounts();
+    if (accounts.length > 0) {
+        msalInstance.setActiveAccount(accounts[0]);
+        await loadDashboard();
+    }
+});
+
+function showError(msg) {
+    document.getElementById("errorBox").innerHTML = `<div class="error-box">${msg}</div>`;
+}
+
+async function getGraphToken() {
+    const account = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
+    const result = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account });
+    return result.accessToken;
+}
+
+async function graphGet(url) {
+    const token = await getGraphToken();
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) throw new Error(`Graph request failed (${res.status}): ${url}`);
+    return res.json();
+}
+
+async function loadDashboard() {
+    document.getElementById("signinBox").style.display = "none";
+    document.getElementById("dashboardContent").style.display = "block";
+
+    try {
+        // Resolve site ID, then list ID, then items with fields expanded
+        const site = await graphGet(
+            `https://graph.microsoft.com/v1.0/sites/${CONFIG.siteHostname}:${CONFIG.sitePath}`
+        );
+        const lists = await graphGet(
+            `https://graph.microsoft.com/v1.0/sites/${site.id}/lists?$filter=displayName eq '${CONFIG.listName}'`
+        );
+        if (!lists.value.length) throw new Error(`List '${CONFIG.listName}' not found on site.`);
+        const listId = lists.value[0].id;
+
+        let items = [];
+        let url = `https://graph.microsoft.com/v1.0/sites/${site.id}/lists/${listId}/items?expand=fields&$top=200`;
+        while (url) {
+            const page = await graphGet(url);
+            items = items.concat(page.value);
+            url = page["@odata.nextLink"] || null;
+        }
+
+        const findings = items
+            .map(i => i.fields)
+            .filter(f => f.Status === "Open");
+
+        renderDashboard(findings);
+        document.getElementById("refreshInfo").textContent = "Updated " + new Date().toLocaleString();
+    } catch (err) {
+        showError("Could not load dashboard data: " + err.message);
+    }
+}
+
+function renderDashboard(findings) {
+    const bySeverity = { Critical: 0, High: 0, Medium: 0, Low: 0 };
+    findings.forEach(f => { if (bySeverity[f.Severity] !== undefined) bySeverity[f.Severity]++; });
+
+    const agentStats = {};
+    CONFIG.agentOrder.forEach(name => {
+        agentStats[name] = { Critical: 0, High: 0, Medium: 0, Low: 0, total: 0 };
+    });
+    findings.forEach(f => {
+        if (!agentStats[f.AgentName]) agentStats[f.AgentName] = { Critical: 0, High: 0, Medium: 0, Low: 0, total: 0 };
+        if (agentStats[f.AgentName][f.Severity] !== undefined) agentStats[f.AgentName][f.Severity]++;
+        agentStats[f.AgentName].total++;
+    });
+
+    // KPIs
+    const activeAgents = Object.values(agentStats).filter(a => a.total > 0 || true).length; // all defined agents shown
+    const dataAgents = Object.entries(agentStats).filter(([, s]) => s.total >= 0);
+    const criticalHigh = bySeverity.Critical + bySeverity.High;
+
+    document.getElementById("kpiRow").innerHTML = `
+        <div class="kpi-card"><div class="label">Open findings</div><div class="value">${findings.length}</div></div>
+        <div class="kpi-card"><div class="label">Critical / High</div><div class="value" style="color:${criticalHigh > 0 ? '#dc2626' : '#16a34a'}">${criticalHigh}</div></div>
+        <div class="kpi-card"><div class="label">Medium</div><div class="value">${bySeverity.Medium}</div></div>
+        <div class="kpi-card"><div class="label">Agents reporting</div><div class="value">${Object.values(agentStats).filter(a => a.total > 0).length} / ${CONFIG.agentOrder.length}</div></div>
+    `;
+
+    document.getElementById("agentGrid").innerHTML = CONFIG.agentOrder.map(name => {
+        const s = agentStats[name] || { Critical: 0, High: 0, Medium: 0, total: 0 };
+        const hasData = s.total >= 0 && (s.Critical + s.High + s.Medium) >= 0 && Object.prototype.hasOwnProperty.call(agentStats, name);
+        const noRun = !(name in agentStats) || (agentStats[name].total === 0 && agentStats[name].Critical === 0 && agentStats[name].High === 0 && agentStats[name].Medium === 0);
+        const color = s.Critical > 0 ? "#dc2626" : s.High > 0 ? "#ea580c" : s.Medium > 0 ? "#d97706" : "#16a34a";
+        return `
+            <div class="agent-card ${noRun ? 'no-data' : ''}">
+                <div class="name">${name}</div>
+                ${noRun
+                    ? `<div class="sub">No data yet - agent not built or hasn't run</div>`
+                    : `<div class="score" style="color:${color}">${s.total}</div><div class="sub">open findings</div>`
+                }
+            </div>`;
+    }).join("");
+
+    const ctx = document.getElementById("findingsChart");
+    if (window._findingsChartInstance) window._findingsChartInstance.destroy();
+    window._findingsChartInstance = new Chart(ctx, {
+        type: "bar",
+        data: {
+            labels: CONFIG.agentOrder,
+            datasets: [
+                { label: "Critical", data: CONFIG.agentOrder.map(n => agentStats[n]?.Critical || 0), backgroundColor: "#e34948", stack: "s" },
+                { label: "High", data: CONFIG.agentOrder.map(n => agentStats[n]?.High || 0), backgroundColor: "#eb6834", stack: "s" },
+                { label: "Medium", data: CONFIG.agentOrder.map(n => agentStats[n]?.Medium || 0), backgroundColor: "#eda100", stack: "s" }
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { stacked: true, grid: { display: false } },
+                y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } }
+            }
+        }
+    });
+}
+</script>
+</body>
+</html>
