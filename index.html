@@ -67,7 +67,7 @@
 const CONFIG = {
     clientId: "d02c6402-0056-4d27-bd76-43b0e05c848f",       // App registration (SPA platform, public client)
     tenantId: "avinatherapy.onmicrosoft.com",
-    redirectUri: window.location.origin,                 // must match app registration redirect URI
+    redirectUri: window.location.origin + window.location.pathname,  // origin alone drops the /repo-name/ path on GitHub Pages
     siteHostname: "avinatherapy.sharepoint.com",
     sitePath: "",                                          // Vibe is at the tenant root, not a /sites/ subsite
     listName: "AgentFindings",
