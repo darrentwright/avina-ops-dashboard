@@ -21,6 +21,7 @@
     .kpi-card.clickable { cursor: pointer; transition: box-shadow 0.15s; }
     .kpi-card.clickable:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
     .kpi-card.active { outline: 2px solid #dc2626; }
+    .kpi-card.active-blue { outline: 2px solid #2563eb; }
     .kpi-card .chevron-inline { font-size: 9px; color: #94a3b8; }
     .kpi-card .kpi-hint { font-size: 11px; color: #94a3b8; margin-top: 2px; }
     .kpi-card .label { font-size: 12px; color: #64748b; margin-bottom: 4px; }
@@ -58,6 +59,10 @@
     .action-item { border-left: 4px solid #cbd5e1; border-radius: 6px; padding: 12px 14px; margin-bottom: 10px; background: #f8fafc; }
     .action-item.critical { border-left-color: #dc2626; background: #fef2f2; }
     .action-item.high { border-left-color: #ea580c; background: #fff7ed; }
+    .action-item.medium { border-left-color: #d97706; background: #fffbeb; }
+    .action-item.low { border-left-color: #65a30d; background: #f7fee7; }
+    .review-panel { background: white; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); border: 1px solid #dbeafe; }
+    .review-panel .action-panel-title { color: #0f172a; }
     .action-item-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
     .action-item h4 { font-size: 13px; margin-bottom: 6px; color: #0f172a; }
     .action-item .ai-text { font-size: 13px; color: #475569; margin-bottom: 6px; }
@@ -91,6 +96,7 @@
         </div>
         <div class="kpi-row" id="kpiRow"></div>
         <div id="actionItemsPanel"></div>
+        <div id="reviewPanel"></div>
         <div class="agent-grid" id="agentGrid"></div>
         <div id="detailPanel"></div>
     </div>
@@ -295,11 +301,50 @@ function renderDetailPanel() {
 }
 
 let _actionItemsVisible = false;
+let _reviewItemsVisible = false;
 
 function toggleActionItems() {
     _actionItemsVisible = !_actionItemsVisible;
     renderActionItems(window._allFindings || []);
     renderKpiRow();
+}
+
+function toggleReviewItems() {
+    _reviewItemsVisible = !_reviewItemsVisible;
+    renderReviewItems(window._allFindings || []);
+    renderKpiRow();
+}
+
+function renderReviewItems(findings) {
+    const panel = document.getElementById("reviewPanel");
+    const toReview = findings
+        .filter(f => f.Severity === "Medium" || f.Severity === "Low")
+        .sort((a, b) => (a.Severity === "Medium" ? 0 : 1) - (b.Severity === "Medium" ? 0 : 1));
+
+    if (!_reviewItemsVisible) { panel.innerHTML = ""; return; }
+
+    if (toReview.length === 0) {
+        panel.innerHTML = `<div class="all-clear">&#9989; Nothing at Medium or Low priority right now.</div>`;
+        return;
+    }
+
+    panel.innerHTML = `
+        <div class="review-panel">
+            <div class="action-panel-title">Worth reviewing - Medium &amp; Low priority</div>
+            <div class="action-panel-sub">${toReview.length} item${toReview.length !== 1 ? 's' : ''} - not urgent, but worth working through when time allows.</div>
+            ${toReview.map(f => `
+                <div class="action-item ${f.Severity.toLowerCase()}">
+                    <div class="action-item-header">
+                        <span class="finding-badge" style="background:${f.Severity === 'Medium' ? '#d97706' : '#65a30d'}">${escapeHtml(f.Severity)}</span>
+                        <span class="agent-tag">${escapeHtml(f.AgentName)}</span>
+                        <span class="finding-category">${escapeHtml(f.Category)}</span>
+                    </div>
+                    <h4>${escapeHtml(f.Title)}</h4>
+                    <div class="ai-text">${escapeHtml(f.Detail)}</div>
+                    <div class="ai-rec"><strong>Fix:</strong> ${escapeHtml(f.Recommendation)}</div>
+                </div>
+            `).join("")}
+        </div>`;
 }
 
 function renderActionItems(findings) {
@@ -339,19 +384,21 @@ function renderKpiRow() {
     const bySeverity = { Critical: 0, High: 0, Medium: 0, Low: 0 };
     findings.forEach(f => { if (bySeverity[f.Severity] !== undefined) bySeverity[f.Severity]++; });
     const criticalHigh = bySeverity.Critical + bySeverity.High;
+    const mediumLow = bySeverity.Medium + bySeverity.Low;
     const agentStats = window._agentStats || {};
 
     document.getElementById("kpiRow").innerHTML = `
         <div class="kpi-card"><div class="label">Open findings</div><div class="value">${findings.length}</div></div>
         <div class="kpi-card clickable ${_actionItemsVisible ? 'active' : ''}" id="criticalHighCard"><div class="label">Critical / High <span class="chevron-inline">${_actionItemsVisible ? '&#9662;' : '&#9656;'}</span></div><div class="value" style="color:${criticalHigh > 0 ? '#dc2626' : '#16a34a'}">${criticalHigh}</div><div class="kpi-hint">${criticalHigh > 0 ? 'click to ' + (_actionItemsVisible ? 'hide' : 'view') : ''}</div></div>
-        <div class="kpi-card"><div class="label">Medium</div><div class="value">${bySeverity.Medium}</div></div>
+        <div class="kpi-card clickable ${_reviewItemsVisible ? 'active-blue' : ''}" id="mediumCard"><div class="label">Medium ${bySeverity.Low > 0 ? '+ Low' : ''} <span class="chevron-inline">${_reviewItemsVisible ? '&#9662;' : '&#9656;'}</span></div><div class="value">${mediumLow}</div><div class="kpi-hint">${mediumLow > 0 ? 'click to ' + (_reviewItemsVisible ? 'hide' : 'view') : ''}</div></div>
         <div class="kpi-card"><div class="label">Agents reporting</div><div class="value">${Object.values(agentStats).filter(a => a.total > 0).length} / ${CONFIG.agentOrder.length}</div></div>
     `;
 
-    const card = document.getElementById("criticalHighCard");
-    if (card && criticalHigh > 0) {
-        card.addEventListener("click", toggleActionItems);
-    }
+    const chCard = document.getElementById("criticalHighCard");
+    if (chCard && criticalHigh > 0) chCard.addEventListener("click", toggleActionItems);
+
+    const medCard = document.getElementById("mediumCard");
+    if (medCard && mediumLow > 0) medCard.addEventListener("click", toggleReviewItems);
 }
 
 function renderDashboard(findings) {
@@ -370,6 +417,7 @@ function renderDashboard(findings) {
 
     renderKpiRow();
     renderActionItems(findings);
+    renderReviewItems(findings);
     renderAgentGrid();
     renderDetailPanel();  // re-render in case an agent was already expanded from a prior refresh
 
