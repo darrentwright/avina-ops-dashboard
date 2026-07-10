@@ -10,7 +10,10 @@
     .container { max-width: 1000px; margin: 0 auto; }
     .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
     h1 { font-size: 20px; color: #0f172a; }
-    .refresh-info { font-size: 12px; color: #94a3b8; }
+    .refresh-info { font-size: 12px; color: #94a3b8; text-align: right; }
+    .refresh-info .data-as-of { font-weight: 600; color: #475569; }
+    .refresh-info .checked-at { display: block; font-size: 11px; margin-top: 2px; }
+    .refresh-info.stale .data-as-of { color: #d97706; }
     .signin-box { text-align: center; padding: 60px 20px; }
     .signin-box button { background: #0f172a; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; cursor: pointer; }
     .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
@@ -168,10 +171,44 @@ async function loadDashboard() {
             .filter(f => f.Status === "Open");
 
         renderDashboard(findings);
-        document.getElementById("refreshInfo").textContent = "Updated " + new Date().toLocaleString();
+        renderRefreshInfo(findings);
     } catch (err) {
         showError("Could not load dashboard data: " + err.message);
     }
+}
+
+function renderRefreshInfo(findings) {
+    const el = document.getElementById("refreshInfo");
+    const checkedAt = new Date().toLocaleString();
+
+    if (findings.length === 0) {
+        el.innerHTML = `<span class="checked-at">Checked ${escapeHtml(checkedAt)} - no findings recorded yet</span>`;
+        return;
+    }
+
+    // LastSeen gets touched on every agent run for every currently-open finding,
+    // so the most recent one across all findings tells us when data was
+    // genuinely last refreshed by the scheduled task - not just when this
+    // page happened to load. A page-load timestamp alone would misleadingly
+    // say "just now" even if the underlying weekly run silently stopped working.
+    const lastSeenDates = findings
+        .map(f => f.LastSeen ? new Date(f.LastSeen) : null)
+        .filter(d => d && !isNaN(d));
+
+    if (lastSeenDates.length === 0) {
+        el.innerHTML = `<span class="checked-at">Checked ${escapeHtml(checkedAt)} - no run timestamp available on findings</span>`;
+        return;
+    }
+
+    const mostRecent = new Date(Math.max(...lastSeenDates));
+    const daysSince = Math.floor((Date.now() - mostRecent.getTime()) / (1000 * 60 * 60 * 24));
+    const isStale = daysSince > 9;  // weekly schedule + a couple days' slack
+
+    el.classList.toggle("stale", isStale);
+    el.innerHTML = `
+        <span class="data-as-of">Data as of: ${escapeHtml(mostRecent.toLocaleString())}${isStale ? ` (${daysSince} days ago - check the scheduled task)` : ''}</span>
+        <span class="checked-at">Page checked: ${escapeHtml(checkedAt)}</span>
+    `;
 }
 
 function escapeHtml(str) {
