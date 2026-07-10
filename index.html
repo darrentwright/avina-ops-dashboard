@@ -18,11 +18,28 @@
     .kpi-card .label { font-size: 12px; color: #64748b; margin-bottom: 4px; }
     .kpi-card .value { font-size: 22px; font-weight: 700; }
     .agent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 24px; }
-    .agent-card { background: white; border-radius: 10px; padding: 14px 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
-    .agent-card.no-data { opacity: 0.55; }
-    .agent-card .name { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+    .agent-card { background: white; border-radius: 10px; padding: 14px 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); cursor: pointer; transition: box-shadow 0.15s; }
+    .agent-card:hover:not(.no-data) { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .agent-card.no-data { opacity: 0.55; cursor: default; }
+    .agent-card.expanded { box-shadow: 0 2px 8px rgba(0,0,0,0.1); outline: 2px solid #0f172a; }
+    .agent-card .name { font-size: 13px; font-weight: 600; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+    .agent-card .chevron { font-size: 11px; color: #94a3b8; transition: transform 0.15s; }
+    .agent-card.expanded .chevron { transform: rotate(180deg); }
     .agent-card .score { font-size: 24px; font-weight: 700; margin-bottom: 2px; }
     .agent-card .sub { font-size: 12px; color: #64748b; }
+    .detail-panel { background: white; border-radius: 10px; padding: 16px 20px; margin-bottom: 24px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+    .detail-panel-title { font-size: 14px; font-weight: 700; margin-bottom: 14px; color: #0f172a; }
+    .finding-detail { border-left: 4px solid #cbd5e1; border-radius: 6px; padding: 12px 14px; margin-bottom: 10px; background: #f8fafc; }
+    .finding-detail.critical { border-left-color: #dc2626; }
+    .finding-detail.high { border-left-color: #ea580c; }
+    .finding-detail.medium { border-left-color: #d97706; }
+    .finding-detail.low { border-left-color: #65a30d; }
+    .finding-detail-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .finding-badge { color: white; font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 2px 8px; border-radius: 20px; }
+    .finding-category { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.03em; }
+    .finding-detail h4 { font-size: 13px; margin-bottom: 6px; color: #0f172a; }
+    .finding-detail .fd-text { font-size: 13px; color: #475569; margin-bottom: 6px; }
+    .finding-detail .fd-rec { font-size: 13px; color: #334155; background: white; padding: 8px 10px; border-radius: 6px; }
     .chart-wrap { background: white; border-radius: 10px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
     .legend { display: flex; gap: 16px; margin-bottom: 10px; font-size: 12px; color: #64748b; }
     .legend span { display: flex; align-items: center; gap: 4px; }
@@ -45,6 +62,7 @@
         <div id="errorBox"></div>
         <div class="kpi-row" id="kpiRow"></div>
         <div class="agent-grid" id="agentGrid"></div>
+        <div id="detailPanel"></div>
         <div class="chart-wrap">
             <div class="legend">
                 <span><span class="dot" style="background:#e34948"></span>Critical</span>
@@ -156,7 +174,75 @@ async function loadDashboard() {
     }
 }
 
+function escapeHtml(str) {
+    if (str === null || str === undefined) return "";
+    return String(str)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+}
+
+let _expandedAgent = null;
+
+function toggleAgentDetail(name, hasData) {
+    if (!hasData) return;
+    _expandedAgent = (_expandedAgent === name) ? null : name;
+    renderAgentGrid();
+    renderDetailPanel();
+}
+
+function renderAgentGrid() {
+    document.getElementById("agentGrid").innerHTML = CONFIG.agentOrder.map(name => {
+        const s = window._agentStats[name] || { Critical: 0, High: 0, Medium: 0, total: 0 };
+        const noRun = !(name in window._agentStats) || (s.total === 0 && s.Critical === 0 && s.High === 0 && s.Medium === 0);
+        const color = s.Critical > 0 ? "#dc2626" : s.High > 0 ? "#ea580c" : s.Medium > 0 ? "#d97706" : "#16a34a";
+        const isExpanded = _expandedAgent === name;
+        return `
+            <div class="agent-card ${noRun ? 'no-data' : ''} ${isExpanded ? 'expanded' : ''}" data-agent="${escapeHtml(name)}" data-has-data="${!noRun}">
+                <div class="name">${escapeHtml(name)} ${noRun ? '' : `<span class="chevron">&#9662;</span>`}</div>
+                ${noRun
+                    ? `<div class="sub">No data yet - agent not built or hasn't run</div>`
+                    : `<div class="score" style="color:${color}">${s.total}</div><div class="sub">open findings - click for detail</div>`
+                }
+            </div>`;
+    }).join("");
+
+    document.querySelectorAll(".agent-card").forEach(card => {
+        card.addEventListener("click", () => {
+            toggleAgentDetail(card.dataset.agent, card.dataset.hasData === "true");
+        });
+    });
+}
+
+function renderDetailPanel() {
+    const panel = document.getElementById("detailPanel");
+    if (!_expandedAgent) { panel.innerHTML = ""; return; }
+
+    const items = (window._allFindings || []).filter(f => f.AgentName === _expandedAgent);
+    const severityOrder = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+    items.sort((a, b) => (severityOrder[a.Severity] ?? 9) - (severityOrder[b.Severity] ?? 9));
+
+    panel.innerHTML = `
+        <div class="detail-panel">
+            <div class="detail-panel-title">${escapeHtml(_expandedAgent)} - ${items.length} open finding${items.length !== 1 ? 's' : ''}</div>
+            ${items.map(f => `
+                <div class="finding-detail ${(f.Severity || '').toLowerCase()}">
+                    <div class="finding-detail-header">
+                        <span class="finding-badge" style="background:${
+                            f.Severity === 'Critical' ? '#dc2626' : f.Severity === 'High' ? '#ea580c' : f.Severity === 'Medium' ? '#d97706' : '#65a30d'
+                        }">${escapeHtml(f.Severity)}</span>
+                        <span class="finding-category">${escapeHtml(f.Category)}</span>
+                    </div>
+                    <h4>${escapeHtml(f.Title)}</h4>
+                    <div class="fd-text">${escapeHtml(f.Detail)}</div>
+                    <div class="fd-rec"><strong>Recommendation:</strong> ${escapeHtml(f.Recommendation)}</div>
+                </div>
+            `).join("")}
+        </div>`;
+}
+
 function renderDashboard(findings) {
+    window._allFindings = findings;  // keep raw findings for the click-to-expand detail panel
+
     const bySeverity = { Critical: 0, High: 0, Medium: 0, Low: 0 };
     findings.forEach(f => { if (bySeverity[f.Severity] !== undefined) bySeverity[f.Severity]++; });
 
@@ -169,10 +255,8 @@ function renderDashboard(findings) {
         if (agentStats[f.AgentName][f.Severity] !== undefined) agentStats[f.AgentName][f.Severity]++;
         agentStats[f.AgentName].total++;
     });
+    window._agentStats = agentStats;  // keep for renderAgentGrid on toggle
 
-    // KPIs
-    const activeAgents = Object.values(agentStats).filter(a => a.total > 0 || true).length; // all defined agents shown
-    const dataAgents = Object.entries(agentStats).filter(([, s]) => s.total >= 0);
     const criticalHigh = bySeverity.Critical + bySeverity.High;
 
     document.getElementById("kpiRow").innerHTML = `
@@ -182,20 +266,8 @@ function renderDashboard(findings) {
         <div class="kpi-card"><div class="label">Agents reporting</div><div class="value">${Object.values(agentStats).filter(a => a.total > 0).length} / ${CONFIG.agentOrder.length}</div></div>
     `;
 
-    document.getElementById("agentGrid").innerHTML = CONFIG.agentOrder.map(name => {
-        const s = agentStats[name] || { Critical: 0, High: 0, Medium: 0, total: 0 };
-        const hasData = s.total >= 0 && (s.Critical + s.High + s.Medium) >= 0 && Object.prototype.hasOwnProperty.call(agentStats, name);
-        const noRun = !(name in agentStats) || (agentStats[name].total === 0 && agentStats[name].Critical === 0 && agentStats[name].High === 0 && agentStats[name].Medium === 0);
-        const color = s.Critical > 0 ? "#dc2626" : s.High > 0 ? "#ea580c" : s.Medium > 0 ? "#d97706" : "#16a34a";
-        return `
-            <div class="agent-card ${noRun ? 'no-data' : ''}">
-                <div class="name">${name}</div>
-                ${noRun
-                    ? `<div class="sub">No data yet - agent not built or hasn't run</div>`
-                    : `<div class="score" style="color:${color}">${s.total}</div><div class="sub">open findings</div>`
-                }
-            </div>`;
-    }).join("");
+    renderAgentGrid();
+    renderDetailPanel();  // re-render in case an agent was already expanded from a prior refresh
 
     const ctx = document.getElementById("findingsChart");
     if (window._findingsChartInstance) window._findingsChartInstance.destroy();
