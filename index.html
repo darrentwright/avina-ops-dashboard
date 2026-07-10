@@ -47,7 +47,18 @@
     .legend { display: flex; gap: 16px; margin-bottom: 10px; font-size: 12px; color: #64748b; }
     .legend span { display: flex; align-items: center; gap: 4px; }
     .dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
-    .error-box { background: #fef2f2; color: #991b1b; padding: 12px 16px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; }
+    .action-panel { background: white; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); border: 1px solid #fecaca; }
+    .action-panel-title { font-size: 14px; font-weight: 700; margin-bottom: 4px; color: #0f172a; display: flex; align-items: center; gap: 8px; }
+    .action-panel-sub { font-size: 12px; color: #64748b; margin-bottom: 14px; }
+    .action-item { border-left: 4px solid #cbd5e1; border-radius: 6px; padding: 12px 14px; margin-bottom: 10px; background: #f8fafc; }
+    .action-item.critical { border-left-color: #dc2626; background: #fef2f2; }
+    .action-item.high { border-left-color: #ea580c; background: #fff7ed; }
+    .action-item-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+    .action-item h4 { font-size: 13px; margin-bottom: 6px; color: #0f172a; }
+    .action-item .ai-text { font-size: 13px; color: #475569; margin-bottom: 6px; }
+    .action-item .ai-rec { font-size: 13px; color: #334155; background: white; padding: 8px 10px; border-radius: 6px; }
+    .agent-tag { font-size: 10px; color: #64748b; background: #e2e8f0; padding: 2px 8px; border-radius: 20px; }
+    .all-clear { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; font-size: 13px; color: #166534; display: flex; align-items: center; gap: 8px; }
 </style>
 </head>
 <body>
@@ -64,6 +75,7 @@
     <div id="dashboardContent" style="display:none;">
         <div id="errorBox"></div>
         <div class="kpi-row" id="kpiRow"></div>
+        <div id="actionItemsPanel"></div>
         <div class="agent-grid" id="agentGrid"></div>
         <div id="detailPanel"></div>
         <div class="chart-wrap">
@@ -277,6 +289,36 @@ function renderDetailPanel() {
         </div>`;
 }
 
+function renderActionItems(findings) {
+    const panel = document.getElementById("actionItemsPanel");
+    const urgent = findings
+        .filter(f => f.Severity === "Critical" || f.Severity === "High")
+        .sort((a, b) => (a.Severity === "Critical" ? 0 : 1) - (b.Severity === "Critical" ? 0 : 1));
+
+    if (urgent.length === 0) {
+        panel.innerHTML = `<div class="all-clear">&#9989; No Critical or High priority items right now - everything reporting is within acceptable thresholds.</div>`;
+        return;
+    }
+
+    panel.innerHTML = `
+        <div class="action-panel">
+            <div class="action-panel-title">&#9888;&#65039; Action Items - fix these first</div>
+            <div class="action-panel-sub">${urgent.length} item${urgent.length !== 1 ? 's' : ''} against best-practice configuration, ranked worst first. This is everything that needs a decision - not just a count.</div>
+            ${urgent.map(f => `
+                <div class="action-item ${f.Severity.toLowerCase()}">
+                    <div class="action-item-header">
+                        <span class="finding-badge" style="background:${f.Severity === 'Critical' ? '#dc2626' : '#ea580c'}">${escapeHtml(f.Severity)}</span>
+                        <span class="agent-tag">${escapeHtml(f.AgentName)}</span>
+                        <span class="finding-category">${escapeHtml(f.Category)}</span>
+                    </div>
+                    <h4>${escapeHtml(f.Title)}</h4>
+                    <div class="ai-text">${escapeHtml(f.Detail)}</div>
+                    <div class="ai-rec"><strong>Fix:</strong> ${escapeHtml(f.Recommendation)}</div>
+                </div>
+            `).join("")}
+        </div>`;
+}
+
 function renderDashboard(findings) {
     window._allFindings = findings;  // keep raw findings for the click-to-expand detail panel
 
@@ -303,6 +345,7 @@ function renderDashboard(findings) {
         <div class="kpi-card"><div class="label">Agents reporting</div><div class="value">${Object.values(agentStats).filter(a => a.total > 0).length} / ${CONFIG.agentOrder.length}</div></div>
     `;
 
+    renderActionItems(findings);
     renderAgentGrid();
     renderDetailPanel();  // re-render in case an agent was already expanded from a prior refresh
 
