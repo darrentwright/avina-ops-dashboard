@@ -65,11 +65,11 @@
 // CONFIG - fill these in for your tenant before deploying
 // ============================================================
 const CONFIG = {
-    clientId: "REPLACE_WITH_ENTRA_APP_CLIENT_ID",       // App registration (SPA platform, public client)
+    clientId: "d02c6402-0056-4d27-bd76-43b0e05c848f",       // App registration (SPA platform, public client)
     tenantId: "avinatherapy.onmicrosoft.com",
     redirectUri: window.location.origin,                 // must match app registration redirect URI
     siteHostname: "avinatherapy.sharepoint.com",
-    sitePath: "/sites/Vibe",                              // adjust to your Vibe site path
+    sitePath: "",                                          // Vibe is at the tenant root, not a /sites/ subsite
     listName: "AgentFindings",
     agentOrder: ["Tenant Health", "Compliance Register", "Change Comms", "Vendor Contracts", "Documentation"]
 };
@@ -124,10 +124,13 @@ async function loadDashboard() {
     document.getElementById("dashboardContent").style.display = "block";
 
     try {
-        // Resolve site ID, then list ID, then items with fields expanded
-        const site = await graphGet(
-            `https://graph.microsoft.com/v1.0/sites/${CONFIG.siteHostname}:${CONFIG.sitePath}`
-        );
+        // Resolve site ID, then list ID, then items with fields expanded.
+        // Graph's root-site lookup is /sites/{hostname} with no colon suffix -
+        // the colon:path form is only for actual subsites.
+        const siteUrl = CONFIG.sitePath
+            ? `https://graph.microsoft.com/v1.0/sites/${CONFIG.siteHostname}:${CONFIG.sitePath}`
+            : `https://graph.microsoft.com/v1.0/sites/${CONFIG.siteHostname}`;
+        const site = await graphGet(siteUrl);
         const lists = await graphGet(
             `https://graph.microsoft.com/v1.0/sites/${site.id}/lists?$filter=displayName eq '${CONFIG.listName}'`
         );
