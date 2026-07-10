@@ -43,7 +43,7 @@
     .finding-detail h4 { font-size: 13px; margin-bottom: 6px; color: #0f172a; }
     .finding-detail .fd-text { font-size: 13px; color: #475569; margin-bottom: 6px; }
     .finding-detail .fd-rec { font-size: 13px; color: #334155; background: white; padding: 8px 10px; border-radius: 6px; }
-    .chart-wrap { background: white; border-radius: 10px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+    .chart-wrap { background: white; border-radius: 10px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); margin-bottom: 20px; }
     .legend { display: flex; gap: 16px; margin-bottom: 10px; font-size: 12px; color: #64748b; }
     .legend span { display: flex; align-items: center; gap: 4px; }
     .dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
@@ -74,10 +74,6 @@
 
     <div id="dashboardContent" style="display:none;">
         <div id="errorBox"></div>
-        <div class="kpi-row" id="kpiRow"></div>
-        <div id="actionItemsPanel"></div>
-        <div class="agent-grid" id="agentGrid"></div>
-        <div id="detailPanel"></div>
         <div class="chart-wrap">
             <div class="legend">
                 <span><span class="dot" style="background:#e34948"></span>Critical</span>
@@ -88,6 +84,10 @@
                 <canvas id="findingsChart"></canvas>
             </div>
         </div>
+        <div class="kpi-row" id="kpiRow"></div>
+        <div id="actionItemsPanel"></div>
+        <div class="agent-grid" id="agentGrid"></div>
+        <div id="detailPanel"></div>
     </div>
 </div>
 
