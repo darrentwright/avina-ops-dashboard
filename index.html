@@ -18,6 +18,11 @@
     .signin-box button { background: #0f172a; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; cursor: pointer; }
     .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
     .kpi-card { background: white; border-radius: 10px; padding: 14px 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+    .kpi-card.clickable { cursor: pointer; transition: box-shadow 0.15s; }
+    .kpi-card.clickable:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .kpi-card.active { outline: 2px solid #dc2626; }
+    .kpi-card .chevron-inline { font-size: 9px; color: #94a3b8; }
+    .kpi-card .kpi-hint { font-size: 11px; color: #94a3b8; margin-top: 2px; }
     .kpi-card .label { font-size: 12px; color: #64748b; margin-bottom: 4px; }
     .kpi-card .value { font-size: 22px; font-weight: 700; }
     .agent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 24px; }
@@ -289,11 +294,21 @@ function renderDetailPanel() {
         </div>`;
 }
 
+let _actionItemsVisible = false;
+
+function toggleActionItems() {
+    _actionItemsVisible = !_actionItemsVisible;
+    renderActionItems(window._allFindings || []);
+    renderKpiRow();
+}
+
 function renderActionItems(findings) {
     const panel = document.getElementById("actionItemsPanel");
     const urgent = findings
         .filter(f => f.Severity === "Critical" || f.Severity === "High")
         .sort((a, b) => (a.Severity === "Critical" ? 0 : 1) - (b.Severity === "Critical" ? 0 : 1));
+
+    if (!_actionItemsVisible) { panel.innerHTML = ""; return; }
 
     if (urgent.length === 0) {
         panel.innerHTML = `<div class="all-clear">&#9989; No Critical or High priority items right now - everything reporting is within acceptable thresholds.</div>`;
@@ -319,11 +334,28 @@ function renderActionItems(findings) {
         </div>`;
 }
 
-function renderDashboard(findings) {
-    window._allFindings = findings;  // keep raw findings for the click-to-expand detail panel
-
+function renderKpiRow() {
+    const findings = window._allFindings || [];
     const bySeverity = { Critical: 0, High: 0, Medium: 0, Low: 0 };
     findings.forEach(f => { if (bySeverity[f.Severity] !== undefined) bySeverity[f.Severity]++; });
+    const criticalHigh = bySeverity.Critical + bySeverity.High;
+    const agentStats = window._agentStats || {};
+
+    document.getElementById("kpiRow").innerHTML = `
+        <div class="kpi-card"><div class="label">Open findings</div><div class="value">${findings.length}</div></div>
+        <div class="kpi-card clickable ${_actionItemsVisible ? 'active' : ''}" id="criticalHighCard"><div class="label">Critical / High <span class="chevron-inline">${_actionItemsVisible ? '&#9662;' : '&#9656;'}</span></div><div class="value" style="color:${criticalHigh > 0 ? '#dc2626' : '#16a34a'}">${criticalHigh}</div><div class="kpi-hint">${criticalHigh > 0 ? 'click to ' + (_actionItemsVisible ? 'hide' : 'view') : ''}</div></div>
+        <div class="kpi-card"><div class="label">Medium</div><div class="value">${bySeverity.Medium}</div></div>
+        <div class="kpi-card"><div class="label">Agents reporting</div><div class="value">${Object.values(agentStats).filter(a => a.total > 0).length} / ${CONFIG.agentOrder.length}</div></div>
+    `;
+
+    const card = document.getElementById("criticalHighCard");
+    if (card && criticalHigh > 0) {
+        card.addEventListener("click", toggleActionItems);
+    }
+}
+
+function renderDashboard(findings) {
+    window._allFindings = findings;  // keep raw findings for the click-to-expand detail panel
 
     const agentStats = {};
     CONFIG.agentOrder.forEach(name => {
@@ -336,15 +368,7 @@ function renderDashboard(findings) {
     });
     window._agentStats = agentStats;  // keep for renderAgentGrid on toggle
 
-    const criticalHigh = bySeverity.Critical + bySeverity.High;
-
-    document.getElementById("kpiRow").innerHTML = `
-        <div class="kpi-card"><div class="label">Open findings</div><div class="value">${findings.length}</div></div>
-        <div class="kpi-card"><div class="label">Critical / High</div><div class="value" style="color:${criticalHigh > 0 ? '#dc2626' : '#16a34a'}">${criticalHigh}</div></div>
-        <div class="kpi-card"><div class="label">Medium</div><div class="value">${bySeverity.Medium}</div></div>
-        <div class="kpi-card"><div class="label">Agents reporting</div><div class="value">${Object.values(agentStats).filter(a => a.total > 0).length} / ${CONFIG.agentOrder.length}</div></div>
-    `;
-
+    renderKpiRow();
     renderActionItems(findings);
     renderAgentGrid();
     renderDetailPanel();  // re-render in case an agent was already expanded from a prior refresh
